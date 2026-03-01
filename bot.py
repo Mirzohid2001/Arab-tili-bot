@@ -16,13 +16,15 @@ from telegram.ext import (
 load_dotenv()
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
 LIMIT_PER_DAY = 5
 TELEGRAM_MAX_MESSAGE = 4096
+CHANNEL = "@Muhammad_Ali_Rajabov_TM"
+CHANNEL_URL = "https://t.me/Muhammad_Ali_Rajabov_TM"
 MODES = ("essay", "speaking", "qa")
 MODE_LABELS = {"essay": "Insho tekshirish", "speaking": "Speaking analiz", "qa": "Savollar"}
+SUBSCRIBE_MSG = "Botdan foydalanish uchun avval kanalga obuna bo‘ling:"
 
 WELCOME = "Assalomu alaykum! Bo‘limni tanlang:"
 HELP_TEXT = (
@@ -43,6 +45,22 @@ def main_keyboard():
 
 def menu_btn():
     return InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Bosh menyu", callback_data="menu")]])
+
+
+def subscribe_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("📢 Kanalga o‘tish", url=CHANNEL_URL)],
+        [InlineKeyboardButton("✅ Obuna bo‘ldim", callback_data="check_sub")],
+    ])
+
+
+async def is_member(bot, user_id: int) -> bool:
+    try:
+        m = await bot.get_chat_member(CHANNEL, user_id)
+        status = str(getattr(m, "status", "")).lower()
+        return status not in ("left", "kicked")
+    except Exception:
+        return False
 
 USAGE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "usage.json")
 user_state = {}
@@ -110,7 +128,11 @@ def limit_msg(user_id, mode):
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_state.pop(update.effective_user.id, None)
+    user_id = update.effective_user.id
+    user_state.pop(user_id, None)
+    if not await is_member(context.bot, user_id):
+        await update.message.reply_text(SUBSCRIBE_MSG, reply_markup=subscribe_keyboard())
+        return
     await update.message.reply_text(WELCOME, reply_markup=main_keyboard())
 
 
@@ -123,11 +145,23 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     user_id = query.from_user.id
     data = query.data
+    if data == "check_sub":
+        if await is_member(context.bot, user_id):
+            await query.message.reply_text(WELCOME, reply_markup=main_keyboard())
+        else:
+            await query.message.reply_text(SUBSCRIBE_MSG, reply_markup=subscribe_keyboard())
+        return
     if data == "menu":
         user_state.pop(user_id, None)
+        if not await is_member(context.bot, user_id):
+            await query.message.reply_text(SUBSCRIBE_MSG, reply_markup=subscribe_keyboard())
+            return
         await query.message.reply_text(WELCOME, reply_markup=main_keyboard())
         return
     if data not in MODES:
+        return
+    if not await is_member(context.bot, user_id):
+        await query.message.reply_text(SUBSCRIBE_MSG, reply_markup=subscribe_keyboard())
         return
     if not check_limit(user_id, data):
         await query.message.reply_text("Limit tugadi. Ertaga.", reply_markup=menu_btn())
@@ -143,6 +177,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
+    if not await is_member(context.bot, user_id):
+        await update.message.reply_text(SUBSCRIBE_MSG, reply_markup=subscribe_keyboard())
+        return
     text = (update.message.text or "").strip()
     if user_id not in user_state:
         await update.message.reply_text("/start bosing.", reply_markup=menu_btn())
@@ -203,6 +240,9 @@ Insho:
 
 async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
+    if not await is_member(context.bot, user_id):
+        await update.message.reply_text(SUBSCRIBE_MSG, reply_markup=subscribe_keyboard())
+        return
     if user_state.get(user_id) != "speaking":
         return
     if not check_limit(user_id, "speaking"):
